@@ -11,3 +11,7 @@ out="$(wasm32-wasi-cabal list-bin trails)"
 
 # Build the shim file
 $(wasm32-wasi-ghc --print-libdir)/post-link.mjs -i "$out" -o trails.js
+
+# Copy both to the Vite project
+cp "$out" js/static/
+cp trails.js js/static/

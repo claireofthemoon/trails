@@ -1,7 +1,9 @@
 {
   "name": "trails",
   "version": "1.0.0",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/trails.umd.js",
   "module": "./dist/trails.es.js",
   "exports": {
@@ -18,5 +20,8 @@
   "type": "commonjs",
   "devDependencies": {
     "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.4.2"
   }
 }
