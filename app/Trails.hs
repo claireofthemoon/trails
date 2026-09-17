@@ -1,7 +1,17 @@
-module Trails (fib) where
+module Trails (draw) where
 
-foreign export ccall fib :: Int -> Int
+import GHC.Wasm.Prim (JSString(..), JSVal, toJSString)
 
-fib :: Int -> Int
-fib 0 = 1
-fib n = n * (fib $ n - 1)
+-- Foreign imports
+
+foreign import javascript unsafe "$1[$2]" js_prop :: JSVal -> JSString -> IO JSVal
+
+foreign import javascript safe "new Promise(() => console.log($1))" js_print :: JSVal -> IO ()
+
+-- Foreign exports
+
+foreign export javascript draw :: JSVal -> IO ()
+draw :: JSVal -> IO ()
+draw canvas = do
+  height <- js_prop canvas (toJSString "height")
+  js_print height

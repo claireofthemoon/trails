@@ -19,3 +19,5 @@ If you run `npm run build`, everything gets bundled into a single ESM file that 
 ## References
 
 Building libraries with Vite: https://andrewwalpole.com/blog/use-vite-for-javascript-libraries/
+
+GHC Wasm primitives: https://github.com/ghc/ghc/blob/master/libraries/ghc-internal/src/GHC/Internal/Wasm/Prim.hs
