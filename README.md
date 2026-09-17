@@ -12,7 +12,9 @@ The build setup is a bit chaotic. Here's what I did (M1 Mac):
 2. Run `./build.sh`, this uses the tools from the previous step to build a Wasm file and JS shim
 3. `cd js && npm install && npm run dev`
 
-That'll get you a webpage which demos the trails. Next up I need to set up Vite to create an asset bundle I can use on my actual site - coming soon...
+That'll get you a webpage which demos the trails.
+
+If you run `npm run build`, everything gets bundled into a single ESM file that you can just import - see `index.html`.
 
 ## References
 

@@ -6,6 +6,7 @@ module.exports = defineConfig({
     lib: {
       entry: path.resolve(__dirname, 'lib/main.js'),
       name: 'trails',
+      formats: ['es'],
       fileName: (format) => `trails.${format}.js`
     }
   }

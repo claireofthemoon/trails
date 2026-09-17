@@ -4,12 +4,10 @@
   "files": [
     "dist"
   ],
-  "main": "./dist/trails.umd.js",
   "module": "./dist/trails.es.js",
   "exports": {
     ".": {
-      "import": "./dist/trails.es.js",
-      "require": "./dist/trails.umd.js"
+      "import": "./dist/trails.es.js"
     }
   },
   "scripts": {
