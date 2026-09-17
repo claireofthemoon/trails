@@ -21,5 +21,5 @@ Object.assign(__exports, instance.exports);
 wasi.initialize(instance);
 
 __exports.hs_init();
-console.log(__exports.fib(10));
+console.log(__exports.fib(6));
 
