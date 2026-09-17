@@ -12,7 +12,11 @@ common warnings
 
 executable trails
     import:           warnings
-    main-is:          Main.hs
+    main-is:          Trails.hs
     build-depends:    base ^>=4.22.0.0
     hs-source-dirs:   app
     default-language: Haskell2010
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_init,--export=fib"
