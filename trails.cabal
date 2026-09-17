@@ -1,0 +1,18 @@
+cabal-version:      3.0
+name:               trails
+version:            0.1.0.0
+license:            BSD-3-Clause
+license-file:       LICENSE
+author:             Claire Barnes
+maintainer:         claire@claire-barnes.com
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall
+
+executable trails
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:    base ^>=4.22.0.0
+    hs-source-dirs:   app
+    default-language: Haskell2010
