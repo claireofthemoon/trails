@@ -23,5 +23,9 @@ wasi.initialize(instance);
 
 const { hs_init, draw } = __exports;
 hs_init();
-console.log(draw({ height: 300 }))
+
+// For now - let's do everything here, will turn into a reusable library later
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+draw(ctx);
 
