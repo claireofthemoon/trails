@@ -1,7 +1,10 @@
 module Trails (draw) where
 
+import Control.Monad.State.Strict (MonadState, runState, state)
 import Data.Fixed (mod')
+import Data.Functor ((<&>))
 import GHC.Wasm.Prim (JSString(..), JSVal, toJSString)
+import System.Random (RandomGen, getStdGen, random)
 
 -- Foreign imports
 
@@ -33,19 +36,20 @@ foreign import javascript unsafe "$1.fillRect($2, $3, $4, $5)"
 
 foreign export javascript draw :: JSVal -> IO ()
 draw :: JSVal -> IO ()
-draw ctx = 
-  (js_requestAnimationFrame_cb $ callback ctx initialState) >>= js_requestAnimationFrame
+draw ctx = do
+  g <- getStdGen
+  (js_requestAnimationFrame_cb $ callback g ctx initialState) >>= js_requestAnimationFrame
 
 -- IO Code
 
-callback :: JSVal -> State -> Double -> IO ()
-callback ctx state ts = do
-  let state' = update ts state
+callback :: RandomGen g => g -> JSVal -> AnimationState -> Double -> IO ()
+callback g ctx state ts = do
+  let (state', g') = runState (update ts state) g
   js_clear_canvas ctx
   render ctx state'
-  (js_requestAnimationFrame_cb $ callback ctx state') >>= js_requestAnimationFrame
+  (js_requestAnimationFrame_cb $ callback g' ctx state') >>= js_requestAnimationFrame
 
-render :: JSVal -> State -> IO ()
+render :: JSVal -> AnimationState -> IO ()
 render ctx state = do
   rp <- getRenderingProperties ctx
   let canvasWidth = width rp
@@ -85,13 +89,13 @@ data RenderingProperties = RenderingProperties {
   height :: Double
 }
 
-data State = State {
+data AnimationState = AnimationState {
   prevTimestamp :: Maybe Double,
   trailState :: TrailState
 }
 
-initialState :: State
-initialState = State {
+initialState :: AnimationState
+initialState = AnimationState {
   prevTimestamp = Nothing,
   trailState = TrailState {
     centre = Centre (2, 1),
@@ -106,15 +110,16 @@ data TrailState = TrailState {
   phase :: Double
 } deriving (Show)
 
-update :: Double -> State -> State
+update :: (RandomGen g, MonadState g m) => Double -> AnimationState -> m AnimationState
 update ts state = case (prevTimestamp state) of
-  Nothing -> state { prevTimestamp = Just ts  }
-  Just pts ->
+  Nothing -> pure $ state { prevTimestamp = Just ts  }
+  Just pts -> do
     let deltaT = ts - pts
-        trail = trailState state
-    in State {
+    let trail = trailState state
+    trailState <- updateTrailState deltaT trail
+    pure $ AnimationState {
       prevTimestamp = Just ts,
-      trailState = updateTrailState deltaT trail
+      trailState = trailState
     }
 
 speed :: Double
@@ -151,18 +156,21 @@ segment p =
      else if p < 5 * segmentSize then Seg5
      else                             Seg6
 
-updateTrailState :: Double -> TrailState -> TrailState
+updateTrailState :: (RandomGen g, MonadState g m) => Double -> TrailState -> m TrailState
 updateTrailState dt state =
   let prevPhase = phase state
       nextPhase = wrapPhase $ prevPhase + dt * speed * (spinSign $ spin state)
       prevSegment = segment prevPhase
       nextSegment = segment nextPhase
-      -- Using prevPhase might look odd here, but it means the phase flips
-      -- to the correct side of the next segment boundary.
-      (c, s, p) = jump prevPhase nextSegment (spin state) (centre state)
-  in if nextSegment /= prevSegment
-     then state { centre = c, spin = s, phase = p }
+  in do
+    shouldJump <- coinFlip
+    pure $ if nextSegment /= prevSegment && shouldJump
+     -- Using prevPhase might look odd here, but it means the phase flips
+     -- to the correct side of the next segment boundary.
+     then let (c, s, p) = jump prevPhase nextSegment (spin state) (centre state)
+          in state { centre = c, spin = s, phase = p }
      else state { phase = nextPhase }
+
 
 wrapPhase :: Double -> Double
 wrapPhase p = p `mod'` (2 * pi)
@@ -171,7 +179,10 @@ jump :: Double -> Segment -> Spin -> Centre -> (Centre, Spin, Double)
 jump p seg spn c =
   let jumpDir = adjacent seg spn
       next = move jumpDir c
-  in (next, rev spn, wrapPhase $ p + pi) -- this flips to wrong side of seg bdry
+  in (next, rev spn, wrapPhase $ p + pi)
+
+coinFlip :: (RandomGen g, MonadState g m) => m Bool
+coinFlip = state random
 
 data Direction
   = DRight
