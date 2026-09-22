@@ -2,9 +2,10 @@ module Trails (draw) where
 
 import Control.Monad.State.Strict (MonadState, runState, state)
 import Data.Fixed (mod')
-import Data.Functor ((<&>))
 import GHC.Wasm.Prim (JSString(..), JSVal, toJSString)
 import System.Random (RandomGen, getStdGen, random)
+
+import qualified Data.Set as Set
 
 -- Foreign imports
 
@@ -43,22 +44,22 @@ draw ctx = do
 -- IO Code
 
 callback :: RandomGen g => g -> JSVal -> AnimationState -> Double -> IO ()
-callback g ctx state ts = do
-  let (state', g') = runState (update ts state) g
+callback g ctx s ts = do
+  let (s', g') = runState (update ts s) g
   js_clear_canvas ctx
-  render ctx state'
-  (js_requestAnimationFrame_cb $ callback g' ctx state') >>= js_requestAnimationFrame
+  render ctx s'
+  (js_requestAnimationFrame_cb $ callback g' ctx s') >>= js_requestAnimationFrame
 
 render :: JSVal -> AnimationState -> IO ()
-render ctx state = do
+render ctx s = do
   rp <- getRenderingProperties ctx
   let canvasWidth = width rp
   let canvasHeight = height rp
   let radius = canvasWidth / 12
-  let (cx, cy) = centreToPixels radius (centre $ trailState state)
+  let (cx, cy) = centreToPixels radius (centre $ trailState s)
   let d = min canvasWidth canvasHeight
-  let x = radius * cos (phase (trailState state)) + cx
-  let y = radius * sin (phase (trailState state)) + cy
+  let x = radius * cos (phase (trailState s)) + cx
+  let y = radius * sin (phase (trailState s)) + cy
   let w = d / 100
   js_fillRect ctx x y w w
 
@@ -111,15 +112,15 @@ data TrailState = TrailState {
 } deriving (Show)
 
 update :: (RandomGen g, MonadState g m) => Double -> AnimationState -> m AnimationState
-update ts state = case (prevTimestamp state) of
-  Nothing -> pure $ state { prevTimestamp = Just ts  }
+update ts s = case (prevTimestamp s) of
+  Nothing -> pure $ s { prevTimestamp = Just ts  }
   Just pts -> do
     let deltaT = ts - pts
-    let trail = trailState state
-    trailState <- updateTrailState deltaT trail
+    let trail = trailState s
+    trs <- updateTrailState deltaT trail
     pure $ AnimationState {
       prevTimestamp = Just ts,
-      trailState = trailState
+      trailState = trs
     }
 
 speed :: Double
@@ -136,7 +137,7 @@ data Segment
 
 newtype Centre = Centre (Int, Int) deriving (Show)
 
-data Spin = Clockwise | Counterclockwise deriving (Show)
+data Spin = Clockwise | Counterclockwise deriving (Eq, Show)
 
 rev :: Spin -> Spin
 rev Clockwise = Counterclockwise
@@ -157,29 +158,35 @@ segment p =
      else                             Seg6
 
 updateTrailState :: (RandomGen g, MonadState g m) => Double -> TrailState -> m TrailState
-updateTrailState dt state =
-  let prevPhase = phase state
-      nextPhase = wrapPhase $ prevPhase + dt * speed * (spinSign $ spin state)
+updateTrailState dt s =
+  let prevPhase = phase s
+      nextPhase = wrapPhase $ prevPhase + dt * speed * (spinSign $ spin s)
       prevSegment = segment prevPhase
       nextSegment = segment nextPhase
-  in do
-    shouldJump <- coinFlip
-    pure $ if nextSegment /= prevSegment && shouldJump
      -- Using prevPhase might look odd here, but it means the phase flips
      -- to the correct side of the next segment boundary.
-     then let (c, s, p) = jump prevPhase nextSegment (spin state) (centre state)
-          in state { centre = c, spin = s, phase = p }
-     else state { phase = nextPhase }
+      (dir, c, spn, p) = jump prevPhase nextSegment (spin s) (centre s)
+  in if nextSegment /= prevSegment
+     then if mustMove dir (centre s)
+            then pure $ s { centre = c, spin = spn, phase = p }
+            else if canMove dir (centre s) (spin s)
+              then do
+                shouldMove <- coinFlip
+                pure $ if shouldMove
+                  then s { centre = c, spin = spn, phase = p }
+                  else s { phase = nextPhase }
+              else pure $ s { phase = nextPhase }
+     else pure $ s { phase = nextPhase }
 
 
 wrapPhase :: Double -> Double
 wrapPhase p = p `mod'` (2 * pi)
 
-jump :: Double -> Segment -> Spin -> Centre -> (Centre, Spin, Double)
+jump :: Double -> Segment -> Spin -> Centre -> (Direction, Centre, Spin, Double)
 jump p seg spn c =
   let jumpDir = adjacent seg spn
       next = move jumpDir c
-  in (next, rev spn, wrapPhase $ p + pi)
+  in (jumpDir, next, rev spn, wrapPhase $ p + pi)
 
 coinFlip :: (RandomGen g, MonadState g m) => m Bool
 coinFlip = state random
@@ -191,6 +198,7 @@ data Direction
   | DLeft
   | DUpLeft
   | DUpRight
+    deriving (Eq, Ord)
 
 -- If we've just crossed a segment border in a given spin, which direction is adjacent?
 adjacent :: Segment -> Spin -> Direction
@@ -224,6 +232,83 @@ move dir (Centre (cx, cy)) =
     DUpLeft -> (cx + adjustment, cy - 1)
     DUpRight -> (cx + 1 + adjustment, cy - 1)
 
+isTop :: Centre -> Bool
+isTop (Centre (_, cy)) = cy == 0
+
+isSecondTop :: Centre -> Bool
+isSecondTop (Centre (_, cy)) = cy == 1
+
+isLeftEven :: Centre -> Bool
+isLeftEven (Centre (cx, cy)) = cx == 0 && even cy
+
+isLeftOdd :: Centre -> Bool
+isLeftOdd (Centre (cx, cy)) = cx == 0 && odd cy
+
+isRightEven :: Centre -> Bool
+isRightEven (Centre (cx, cy)) = cx == 6 && even cy
+
+isRightOdd :: Centre -> Bool
+isRightOdd (Centre (cx, cy)) = cx == 5 && odd cy
+
+-- TODO: fix to use actual bounds
+
+isBottom :: Centre -> Bool
+isBottom (Centre (_, cy)) = cy == 4
+
+isSecondBottom :: Centre -> Bool
+isSecondBottom (Centre (_, cy)) = cy == 3
+
+mustMove :: Direction -> Centre -> Bool
+mustMove dir c =
+  let -- All accessible moves from the top edge are mandatory
+      top    = isTop c
+      -- In an even row on the left edge, UpRight and DownRight are mandatory
+      left   = isLeftEven c && (dir == DUpRight || dir == DDownRight)
+      -- In an even row on the right edge, UpLeft and DownLeft are mandatory
+      right  = isRightEven c && (dir == DUpLeft || dir == DDownLeft)
+      bottom = isBottom c
+  in top || left || right || bottom
+
+canMove :: Direction -> Centre -> Spin -> Bool
+canMove dir c spn =
+  let allDirs = Set.fromList [DRight, DDownRight, DDownLeft, DLeft, DUpLeft, DUpRight]
+      top = Set.fromList [DDownLeft, DDownRight]
+      secondTop = Set.fromList $ if spn == Clockwise
+        then [DUpRight, DRight, DDownRight, DDownLeft, DLeft]
+        else [DRight, DDownRight, DDownLeft, DLeft, DUpLeft]
+      leftEven = Set.fromList [DUpRight, DDownRight, DRight]
+      leftOdd = Set.fromList $ if spn == Clockwise
+          then [DUpLeft, DUpRight, DRight, DDownRight]
+          else [DUpRight, DRight, DDownRight, DDownLeft]
+      rightEven = Set.fromList [DUpLeft, DDownLeft, DLeft]
+      rightOdd = Set.fromList $ if spn == Clockwise
+          then [DDownRight, DDownLeft, DLeft, DUpLeft]
+          else [DDownLeft, DLeft, DUpLeft, DUpRight]
+      bottom = Set.fromList [DUpLeft, DUpRight]
+      secondBottom = Set.fromList $ if spn == Clockwise
+        then [DDownLeft, DLeft, DUpLeft, DUpRight, DRight]
+        else [DLeft, DUpLeft, DUpRight, DRight, DDownRight]
+
+      topCandidates = if isTop c then top else allDirs
+      secondTopCandidates = if isSecondTop c then secondTop else allDirs
+      leftEvenCandidates = if isLeftEven c then leftEven else allDirs
+      leftOddCandidates = if isLeftOdd c then leftOdd else allDirs
+      rightEvenCandidates = if isRightEven c then rightEven else allDirs
+      rightOddCandidates = if isRightOdd c then rightOdd else allDirs
+      bottomCandidates = if isBottom c then bottom else allDirs
+      secondBottomCandidates = if isSecondBottom c then secondBottom else allDirs
+      allowed = foldr Set.intersection allDirs [
+          topCandidates,
+          secondTopCandidates,
+          leftEvenCandidates,
+          leftOddCandidates,
+          rightEvenCandidates,
+          rightOddCandidates,
+          bottomCandidates,
+          secondBottomCandidates
+        ]
+  in Set.member dir allowed
+
 {-
 - How does the circle layout work?
 -
@@ -236,4 +321,17 @@ move dir (Centre (cx, cy)) =
 - Coordinate systems:
 - For circle layout, graphics (top left is 0,0 and positive is right/down)
 - Within a circle, 0 phase is (1, 0) and clockwise is positive
+-
+- Boundaries: each provides a constraint, which stacks.
+- Left edge, even row: UpRight or DownRight _must_ be taken. Right is optional. Everything else is banned.
+- Left edge, odd row: UpLeft can only be taken if going clockwise, DownLeft can only be taken if going counterclockwise. Left is banned.
+- Right edge, even row: UpLeft or DownLeft _must_ be taken. Left is optional. Everything else is banned.
+- Right edge, odd row: UpRight can only be taken if going counterclockwise. DownRight can only be taken if going clockwise. Right is banned.
+- Top edge: DownLeft and DownRight _must_ be taken.
+- Second from top edge: UpLeft can only be taken if going counterclockwise. UpRight can only be taken if going clockwise.
+- Bottom edge: UpLeft and UpRight _must_ be taken.
+- Second from bottom edge: DownRight can only be taken if going counterclockwise. DownLeft can only be taken if going clockwise.
+
+- Two kinds of things here: mandatory actions and optional one. Check mandatory first, then check if desired action is in the allowed optional set.
+
 -}

@@ -16,6 +16,7 @@ executable trails
     build-depends:
       base ^>=4.22.0.0,
       ghc-experimental ^>=9.1401.0,
+      containers,
       mtl,
       random
     hs-source-dirs:   app
