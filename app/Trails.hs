@@ -1,5 +1,6 @@
 module Trails (draw) where
 
+import Control.Monad (when)
 import Control.Monad.State.Strict (MonadState, runState, state)
 import Data.Fixed (mod')
 import GHC.Wasm.Prim (JSString(..), JSVal, toJSString)
@@ -33,6 +34,10 @@ foreign import javascript unsafe "let ctx = $1; ctx.clearRect(0, 0, ctx.canvas.w
 foreign import javascript unsafe "$1.fillRect($2, $3, $4, $5)"
   js_fillRect :: JSVal -> Double -> Double -> Double -> Double -> IO ()
 
+foreign import javascript unsafe "let ctx = $1; ctx.save(); ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.restore();"
+  js_fade :: JSVal -> IO ()
+  
+
 -- Foreign exports
 
 foreign export javascript draw :: JSVal -> IO ()
@@ -46,7 +51,7 @@ draw ctx = do
 callback :: RandomGen g => g -> JSVal -> AnimationState -> Double -> IO ()
 callback g ctx s ts = do
   let (s', g') = runState (update ts s) g
-  js_clear_canvas ctx
+  -- js_clear_canvas ctx
   render ctx s'
   (js_requestAnimationFrame_cb $ callback g' ctx s') >>= js_requestAnimationFrame
 
@@ -61,6 +66,7 @@ render ctx s = do
   let x = radius * cos (phase (trailState s)) + cx
   let y = radius * sin (phase (trailState s)) + cy
   let w = d / 100
+  js_fade ctx
   js_fillRect ctx x y w w
 
 -- Even rows are unshifted
@@ -79,15 +85,26 @@ getRenderingProperties ctx = do
   canvasWidth <- js_get_prop_number canvas $ toJSString "offsetWidth"
   canvasHeight <- js_get_prop_number canvas $ toJSString "offsetHeight"
   dpr <- js_devicePixelRatio
-  js_set_prop_number canvas (toJSString "width") (canvasWidth * dpr)
-  js_set_prop_number canvas (toJSString "height") (canvasHeight * dpr)
-  pure $ RenderingProperties { width = canvasWidth * dpr, height = canvasHeight * dpr }
+  let width = canvasWidth * dpr
+  let height = canvasHeight * dpr
+  currentWidth <- js_get_prop_number canvas $ toJSString "width"
+  currentHeight <- js_get_prop_number canvas $ toJSString "height"
+  when (currentWidth /= width) $
+    js_set_prop_number canvas (toJSString "width") width
+  when (currentHeight /= height) $
+    js_set_prop_number canvas (toJSString "height") height
+  pure $ RenderingProperties { width = canvasWidth * dpr, height = canvasHeight * dpr, devicePixelRatio = dpr }
 
 -- Pure code
 
 data RenderingProperties = RenderingProperties {
   width :: Double,
-  height :: Double
+  height :: Double,
+  devicePixelRatio :: Double
+}
+
+data StageProperties = StageProperties {
+  circlesHeight :: Int
 }
 
 data AnimationState = AnimationState {
