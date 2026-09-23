@@ -34,8 +34,11 @@ foreign import javascript unsafe "let ctx = $1; ctx.clearRect(0, 0, ctx.canvas.w
 foreign import javascript unsafe "$1.fillRect($2, $3, $4, $5)"
   js_fillRect :: JSVal -> Double -> Double -> Double -> Double -> IO ()
 
-foreign import javascript unsafe "let ctx = $1; ctx.save(); ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.restore();"
+foreign import javascript unsafe "let ctx = $1; ctx.save(); ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = 'rgba(0, 0, 0, 0.97)'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.restore();"
   js_fade :: JSVal -> IO ()
+
+foreign import javascript unsafe "$1.fillStyle = $2"
+  js_fillStyle :: JSVal -> JSString -> IO ()
   
 
 -- Foreign exports
@@ -67,6 +70,7 @@ render ctx s = do
   let y = radius * sin (phase (trailState s)) + cy
   let w = d / 100
   js_fade ctx
+  js_fillStyle ctx $ toJSString "rgba(64, 64, 64, 1)"
   js_fillRect ctx x y w w
 
 -- Even rows are unshifted
